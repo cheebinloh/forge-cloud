@@ -38,6 +38,9 @@ TOKEN = os.environ.get("CLOUD_TOKEN", "")
 COOKIE = "ufv"
 IMG_EXT = {".png", ".jpg", ".jpeg", ".webp"}
 STATUS_FILE = Path(os.environ.get("STATUS_FILE", "/workspace/status.txt"))
+FORGE_URL = os.environ.get("FORGE_URL", "http://127.0.0.1:1888")
+FORGE_MODELS = Path(os.environ.get("FORGE_MODELS", "/workspace/models"))
+SERVICES = [x for x in os.environ.get("SERVICES", "comfy").split(",") if x]
 
 app = FastAPI(title="Unleashed Forge cloud video")
 # the phone page lives on the home PC and calls here straight over Tailscale
@@ -124,6 +127,23 @@ def _gpu():
         return ""
 
 
+def _forge_alive():
+    try:
+        import urllib.request
+        urllib.request.urlopen(FORGE_URL + "/sdapi/v1/progress?skip_current_image=true",
+                               timeout=3).read()
+        return True
+    except Exception:
+        return False
+
+
+def _dl_status():
+    try:
+        return json.loads((FORGE_MODELS / "status.json").read_text())
+    except Exception:
+        return None
+
+
 @app.get("/api/health")
 def health():
     """What the phone's Cloud page polls while the box is coming up."""
@@ -132,9 +152,62 @@ def health():
         boot = STATUS_FILE.read_text(encoding="utf-8").strip().splitlines()[-1]
     except Exception:
         pass
-    return {"ok": True, "comfy": wan.alive(), "gpu": _gpu(), "boot": boot,
+    return {"ok": True, "services": SERVICES,
+            "comfy": wan.alive() if "comfy" in SERVICES else None,
+            "forge": _forge_alive() if "forge" in SERVICES else None,
+            "gpu": _gpu(), "boot": boot,
             "models": {k: _model_present(k) for k in ("5b", "14b")},
-            "busy": VIDEO["on"]}
+            "downloads": _dl_status(), "busy": VIDEO["on"]}
+
+
+@app.get("/api/manifest")
+def manifest():
+    """The Civitai picks this box booted with, with where they landed."""
+    import base64
+    try:
+        items = json.loads(base64.b64decode(os.environ.get("MANIFEST_B64", "")).decode())
+    except Exception:
+        items = []
+    for it in items:
+        sub = "checkpoints" if it.get("type") == "checkpoint" else "loras"
+        it["present"] = (FORGE_MODELS / sub / it.get("file_name", "")).exists()
+    return items
+
+
+class ForgeSelect(BaseModel):
+    checkpoint: str
+
+
+@app.post("/api/forge/select")
+def forge_select(req: ForgeSelect):
+    """Switch Forge's checkpoint. Flux / Krea checkpoints need the separate
+    text encoders + VAE as 'additional modules'; SDXL must not have them."""
+    import urllib.request
+    try:
+        bases = json.loads((FORGE_MODELS / "bases.json").read_text())
+    except Exception:
+        bases = {}
+    stem = req.checkpoint.split(" [")[0]
+    base = ""
+    for fn, b in bases.items():
+        if fn == stem or Path(fn).stem == Path(stem).stem:
+            base = (b or "").lower()
+    flux = "flux" in base or "krea" in base
+    mods = []
+    if flux:
+        te = FORGE_MODELS / "text_encoder"
+        mods = [str(te / "clip_l.safetensors"), str(te / "t5xxl_fp8_e4m3fn.safetensors"),
+                str(FORGE_MODELS / "vae" / "ae.safetensors")]
+    body = json.dumps({"sd_model_checkpoint": req.checkpoint,
+                       "forge_additional_modules": mods,
+                       "forge_preset": "flux" if flux else "xl"}).encode()
+    try:
+        urllib.request.urlopen(urllib.request.Request(
+            FORGE_URL + "/sdapi/v1/options", data=body,
+            headers={"Content-Type": "application/json"}, method="POST"), timeout=900).read()
+    except Exception as e:
+        return JSONResponse({"error": f"Forge: {str(e)[:200]}"}, status_code=502)
+    return {"ok": True, "flux": flux, "modules": mods}
 
 
 def _model_present(model):

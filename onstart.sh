@@ -1,19 +1,26 @@
 #!/bin/bash
-# Unleashed Forge cloud video - Vast.ai onstart. Runs as root on every boot
-# of the instance; everything lands in /workspace, which Vast keeps across
-# stop/start, so only the first boot is slow (pip + ~47 GB of models).
+# Unleashed Forge cloud - Vast.ai onstart. Runs as root on every boot of the
+# instance; everything lands in /workspace, which Vast keeps across
+# stop/start, so only the first boot is slow (pip + model downloads).
 #
-# Env from the template:  TS_AUTHKEY (tailscale), TS_HOSTNAME (vast-video),
-#                         VIDEO_PASSWORD (for the public HTTPS door), CLOUD_REPO
+# Env from the template:
+#   SERVICES       comfy,forge (any subset)     TS_AUTHKEY / TS_HOSTNAME  tailscale
+#   MANIFEST_B64   base64 json list of Civitai files for Forge (checkpoints, loras)
+#   CIVITAI_TOKEN  Civitai API key for those downloads
+#   CLOUD_TOKEN    per-instance secret the phone must send on writes
+#   VIDEO_PASSWORD password for the public door; CLOUD_REPO the code to clone
 exec > >(tee -a /workspace/onstart.log) 2>&1
 set -x
 cd /workspace || exit 1
 S=/workspace/status.txt
 st() { echo "$1" >> "$S"; }
 : > "$S"
+SERVICES="${SERVICES:-comfy}"
+has() { case ",$SERVICES," in *",$1,"*) return 0;; *) return 1;; esac; }
+
 st "Installing system packages"
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -qq && apt-get install -y -qq git curl ffmpeg libgl1 libglib2.0-0 gcc g++ > /dev/null
+apt-get update -qq && apt-get install -y -qq git curl ffmpeg libgl1 libglib2.0-0 gcc g++ aria2 > /dev/null
 # comfy-kitchen compiles a triton helper at import and links -lcuda; the
 # runtime image ships only libcuda.so.1, so give it the dev-style name too
 ln -sf /usr/lib/x86_64-linux-gnu/libcuda.so.1 /usr/lib/x86_64-linux-gnu/libcuda.so
@@ -36,31 +43,57 @@ st "Fetching server"
 REPO="${CLOUD_REPO:-https://github.com/cheebinloh/forge-cloud}"
 rm -rf /workspace/forge-cloud
 git clone --depth 1 "$REPO" /workspace/forge-cloud || st "git clone failed"
-
-# --- ComfyUI
-st "Installing ComfyUI"
-if [ ! -d /workspace/ComfyUI ]; then
-  git clone --depth 1 https://github.com/comfyanonymous/ComfyUI /workspace/ComfyUI
-fi
-pip install -q -r /workspace/ComfyUI/requirements.txt \
-  websocket-client fastapi uvicorn python-multipart pillow huggingface_hub hf_transfer
+pip install -q websocket-client fastapi uvicorn python-multipart pillow huggingface_hub hf_transfer requests
 export HF_HUB_ENABLE_HF_TRANSFER=1
+mkdir -p /workspace/data /workspace/models/checkpoints /workspace/models/loras \
+         /workspace/models/vae /workspace/models/text_encoder
 
-# --- models: 5B first so the box is usable early, 14B keeps downloading behind
-st "Downloading models (5B, ~18 GB)"
-python /workspace/forge-cloud/models.py 5b
-
-st "Starting ComfyUI"
-cd /workspace/ComfyUI
-(python main.py --listen 127.0.0.1 --port 8188 --preview-method auto \
-   > /workspace/comfy.log 2>&1 &)
+# the phone-facing server comes up first: it reports the boot stages below
 cd /workspace/forge-cloud
 (DATA_DIR=/workspace/data uvicorn server:app --host 0.0.0.0 --port 4890 \
    > /workspace/server.log 2>&1 &)
+
+# --- Forge (vForge): the user's Civitai picks + flux text encoders
+if has forge; then
+  st "Installing Forge"
+  if [ ! -d /workspace/forge ]; then
+    git clone --depth 1 https://github.com/lllyasviel/stable-diffusion-webui-forge /workspace/forge
+  fi
+  st "Downloading Forge models"
+  python /workspace/forge-cloud/models.py forge     # manifest + flux TEs/VAE, writes models/status.json
+  st "Starting Forge"
+  cd /workspace/forge
+  # the image's torch stays (launch.py only installs torch when it is missing)
+  (python launch.py --api --listen --port 1888 --skip-torch-cuda-test --skip-version-check \
+     --ckpt-dir /workspace/models/checkpoints --lora-dir /workspace/models/loras \
+     --vae-dir /workspace/models/vae --text-encoder-dir /workspace/models/text_encoder \
+     --no-download-sd-model --api-log --cuda-malloc \
+     > /workspace/forge.log 2>&1 &)
+  cd /workspace
+fi
+
+# --- ComfyUI (vComfy): Wan 2.2 video
+if has comfy; then
+  st "Installing ComfyUI"
+  if [ ! -d /workspace/ComfyUI ]; then
+    git clone --depth 1 https://github.com/comfyanonymous/ComfyUI /workspace/ComfyUI
+  fi
+  pip install -q -r /workspace/ComfyUI/requirements.txt
+  st "Downloading models (5B, ~18 GB)"
+  python /workspace/forge-cloud/models.py 5b
+  st "Starting ComfyUI"
+  cd /workspace/ComfyUI
+  (python main.py --listen 127.0.0.1 --port 8188 --preview-method auto \
+     > /workspace/comfy.log 2>&1 &)
+  cd /workspace
+fi
+
 for i in $(seq 1 60); do
   curl -fs http://127.0.0.1:4890/api/health > /dev/null && break
   sleep 2
 done
-st "Ready (5B) - 14B still downloading"
-python /workspace/forge-cloud/models.py 14b
+if has comfy; then
+  st "Ready (5B) - 14B still downloading"
+  python /workspace/forge-cloud/models.py 14b
+fi
 st "Ready"
