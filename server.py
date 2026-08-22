@@ -31,6 +31,10 @@ UPLOADS, VIDEOS = DATA / "uploads", DATA / "videos"
 for d in (UPLOADS, VIDEOS):
     d.mkdir(parents=True, exist_ok=True)
 PASSWORD = os.environ.get("VIDEO_PASSWORD", "")
+# per-instance secret the phone page learns same-origin from its own server;
+# a foreign site in the phone's browser can post here (the IP is trusted) but
+# cannot know this, so every mutating call must carry it
+TOKEN = os.environ.get("CLOUD_TOKEN", "")
 COOKIE = "ufv"
 IMG_EXT = {".png", ".jpg", ".jpeg", ".webp"}
 STATUS_FILE = Path(os.environ.get("STATUS_FILE", "/workspace/status.txt"))
@@ -56,14 +60,23 @@ def _trusted(request):
     return bool(PASSWORD) and request.cookies.get(COOKIE) == _token()
 
 
+def _has_token(request):
+    return bool(TOKEN) and hmac.compare_digest(request.headers.get("x-token", ""), TOKEN)
+
+
 @app.middleware("http")
 async def _gate(request, call_next):
     p = request.url.path
-    if p in ("/login", "/api/health") or _trusted(request):
+    if request.method == "OPTIONS" or p in ("/login", "/api/health"):
         return await call_next(request)
-    if p == "/" or p.endswith(".html"):
-        return RedirectResponse("/login")
-    return JSONResponse({"error": "login required"}, status_code=401)
+    if not _trusted(request):
+        if p == "/" or p.endswith(".html"):
+            return RedirectResponse("/login")
+        return JSONResponse({"error": "login required"}, status_code=401)
+    if request.method in ("POST", "PUT", "DELETE") and TOKEN and not _has_token(request)             and not (PASSWORD and request.cookies.get(COOKIE) == _token()):
+        return JSONResponse({"error": "missing token"}, status_code=403)
+    return await call_next(request)
+
 
 
 LOGIN = """<!doctype html><meta name=viewport content="width=device-width,initial-scale=1">
@@ -96,7 +109,8 @@ def login(pw: str = Form("")):
 # ------------------------------------------------------------------ page
 @app.get("/")
 def index():
-    html = (HERE / "index.html").read_text(encoding="utf-8")
+    # the page only renders for trusted clients, so it may carry the token
+    html = (HERE / "index.html").read_text(encoding="utf-8").replace("__TOKEN__", TOKEN)
     return HTMLResponse(html, headers={"Cache-Control": "no-store"})
 
 

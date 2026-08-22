@@ -83,6 +83,9 @@ textarea,input[type=text]{width:100%;background:var(--soft);border:0;border-radi
 <div id="toast"></div>
 <script>
 const $ = id => document.getElementById(id);
+const TOKEN = "__TOKEN__";
+const _fetch = window.fetch.bind(window);
+window.fetch = (u, o = {}) => { if (o.method && o.method !== "GET") o.headers = {...(o.headers || {}), "X-Token": TOKEN}; return _fetch(u, o); };
 const esc = v => String(v == null ? "" : v).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 let T; function toast(m){ $("toast").textContent = m; $("toast").classList.add("on"); clearTimeout(T); T = setTimeout(() => $("toast").classList.remove("on"), 2600); }
 document.querySelectorAll(".seg").forEach(s => s.querySelectorAll("button").forEach(b =>
