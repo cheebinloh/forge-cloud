@@ -63,6 +63,10 @@ if has forge; then
   python /workspace/forge-cloud/models.py forge     # manifest + flux TEs/VAE, writes models/status.json
   st "Starting Forge"
   cd /workspace/forge
+  # first pass installs Forge's pins and exits; scikit-image then needs a wheel
+  # that matches the numpy it ends up with, or processing.py dies on import
+  python launch.py --skip-torch-cuda-test --skip-version-check --exit > /workspace/forge-install.log 2>&1 || true
+  pip install -q --force-reinstall --no-deps scikit-image==0.21.0
   # the image's torch stays (launch.py only installs torch when it is missing)
   (python launch.py --api --listen --port 1888 --skip-torch-cuda-test --skip-version-check \
      --ckpt-dir /workspace/models/checkpoints --lora-dir /workspace/models/loras \
