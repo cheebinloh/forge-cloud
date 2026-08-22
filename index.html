@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#000">
+<title>Cloud video</title>
+<style>
+:root{--bg:#000;--card:#1c1c1e;--soft:#2c2c2e;--txt:#fff;--dim:#8e8e93;--acc:#0a84ff;--red:#ff453a}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);font:16px -apple-system,system-ui,"PingFang SC",sans-serif;padding:env(safe-area-inset-top) 0 40px}
+.wrap{max-width:520px;margin:0 auto;padding:18px 16px}
+h1{font-size:30px;margin:8px 0 2px;letter-spacing:-.4px}
+.sub{color:var(--dim);margin:0 0 18px;font-size:14px}
+.sec{color:var(--dim);font-size:12px;text-transform:uppercase;letter-spacing:.4px;margin:20px 4px 8px}
+.card{background:var(--card);border-radius:14px;padding:14px}
+label{display:block;color:var(--dim);font-size:12px;margin:0 0 6px 2px}
+textarea,input[type=text]{width:100%;background:var(--soft);border:0;border-radius:11px;color:var(--txt);padding:12px;font:16px inherit;resize:vertical}
+.btn{display:block;width:100%;border:0;border-radius:13px;padding:15px;font-size:17px;font-weight:600;background:var(--acc);color:#fff;margin-top:12px}
+.btn.sec{background:var(--soft);color:var(--acc)}
+.btn:disabled{opacity:.5}
+.flex{display:flex;gap:10px}.flex>*{flex:1;min-width:0}
+.seg{display:flex;background:var(--soft);border-radius:9px;padding:2px;gap:2px}
+.seg button{flex:1;border:0;background:none;color:var(--txt);font-size:13px;padding:8px 0;border-radius:7px}
+.seg button.on{background:#3a3a3c;font-weight:600}
+.note{color:var(--dim);font-size:13px;line-height:1.4}
+#src{display:none;width:100%;border-radius:12px;margin-top:12px}
+#prev{display:none;width:100%;border-radius:12px;margin-top:10px}
+#out{display:none;margin-top:12px}
+#out video{width:100%;border-radius:12px;background:#000}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.grid button{position:relative;padding:0;border:0;background:var(--soft);border-radius:9px;overflow:hidden;aspect-ratio:3/4}
+.grid img{width:100%;height:100%;object-fit:cover;display:block}
+.grid .play{position:absolute;left:50%;top:50%;width:34px;height:34px;margin:-17px 0 0 -17px;border-radius:50%;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center}
+.grid .play svg{width:14px;height:14px;fill:#fff;margin-left:2px}
+.grid button.sel{outline:3px solid var(--acc)}
+.grid .cap{position:absolute;left:0;right:0;bottom:0;padding:3px;background:rgba(0,0,0,.6);color:#fff;font-size:10px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#status{margin-top:10px;min-height:18px}
+.pill{border:0;border-radius:999px;background:var(--soft);color:var(--acc);padding:6px 12px;font-size:13px}
+#toast{position:fixed;left:50%;bottom:30px;transform:translateX(-50%);background:#333;color:#fff;padding:10px 16px;border-radius:12px;font-size:14px;opacity:0;transition:.2s;pointer-events:none;max-width:90vw}
+#toast.on{opacity:1}
+</style></head><body><div class="wrap">
+<h1>Cloud video</h1>
+<p class="sub" id="sub">Wan 2.2 · image → video</p>
+
+<div class="sec">Source 源图</div>
+<div class="card">
+  <button class="btn sec" style="margin:0" onclick="$('file').click()">Choose photo 选择照片</button>
+  <input type="file" id="file" accept="image/*" hidden>
+  <img id="src" alt="">
+</div>
+
+<div class="sec">Motion 动作</div>
+<div class="card">
+  <textarea id="prompt" rows="3" placeholder="她缓缓转头看向镜头微笑，长发被风吹起 / she slowly turns to the camera and smiles, hair in the breeze"></textarea>
+  <div class="flex" style="margin-top:12px">
+    <div><label>Length 时长</label><div class="seg" id="sec">
+      <button data-v="2">2 s</button><button data-v="3">3 s</button>
+      <button data-v="5" class="on">5 s</button><button data-v="8">8 s</button></div></div>
+    <div><label>Size 分辨率</label><div class="seg" id="size">
+      <button data-v="480">480p</button><button data-v="704" class="on">720p</button></div></div>
+  </div>
+  <div style="margin-top:12px"><label>Model 模型</label><div class="seg" id="model">
+    <button data-v="5b" class="on">5B 快</button><button data-v="14b">14B 精</button></div></div>
+  <button class="btn" id="go" onclick="generate()">Generate video 生成视频</button>
+  <div class="note" id="status"></div>
+  <img id="prev" alt="">
+  <div id="out">
+    <video id="video" controls playsinline loop preload="metadata"></video>
+    <div class="flex" style="margin-top:10px">
+      <button class="btn sec" style="margin:0" onclick="continueClip()">Continue 续拍</button>
+      <button class="btn sec" style="margin:0" onclick="shareClip()">Share 分享</button>
+      <button class="btn sec" style="margin:0;color:var(--red)" onclick="deleteClip()">Delete</button>
+    </div>
+  </div>
+</div>
+
+<div class="sec">Clips 片段 <button class="pill" onclick="loadList()" style="float:right;margin-top:-6px">⟳</button></div>
+<div class="grid" id="list"></div>
+<p class="note" style="margin-top:14px">5B: 720p 5 s ≈ 1–2 min on a 4090. 14B: far better motion, ~5–8× slower.
+  Continue 续拍 adds a segment from the clip's last frame and saves a longer copy.</p>
+</div>
+<div id="toast"></div>
+<script>
+const $ = id => document.getElementById(id);
+const esc = v => String(v == null ? "" : v).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+let T; function toast(m){ $("toast").textContent = m; $("toast").classList.add("on"); clearTimeout(T); T = setTimeout(() => $("toast").classList.remove("on"), 2600); }
+document.querySelectorAll(".seg").forEach(s => s.querySelectorAll("button").forEach(b =>
+  b.onclick = () => s.querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b))));
+const val = id => $(id).querySelector("button.on").dataset.v;
+const ST = {src: "", cont: "", sel: null, on: false};
+
+$("file").onchange = async () => {
+  const f = $("file").files[0]; if (!f) return;
+  const fd = new FormData(); fd.append("file", f);
+  $("status").textContent = "Uploading…";
+  try {
+    const j = await (await fetch("/api/upload", {method: "POST", body: fd})).json();
+    if (j.error) { toast(j.error); return; }
+    ST.src = "uploads/" + j.name; ST.cont = "";
+    $("src").src = j.url; $("src").style.display = "block";
+    $("status").textContent = `${j.width}×${j.height}`;
+  } catch (e) { toast("Upload failed"); }
+  $("file").value = "";
+};
+
+async function generate() {
+  if (ST.on) { toast("Already rendering"); return; }
+  if (!ST.src && !ST.cont) { toast("Choose a photo first 先选照片"); return; }
+  const body = {prompt: $("prompt").value.trim(), seconds: +val("sec"), size: +val("size"), model: val("model")};
+  if (ST.cont) body.video = ST.cont; else body.image = ST.src;
+  localStorage.setItem("prompt", body.prompt);
+  const r = await fetch("/api/video", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+  const j = await r.json();
+  if (j.error) { toast(j.error); return; }
+  ST.on = true; $("go").disabled = true; $("out").style.display = "none";
+  $("status").textContent = "Starting…";
+}
+async function tick() {
+  let p; try { p = await (await fetch("/api/progress")).json(); } catch (e) { return; }
+  if (p.active) {
+    ST.on = true; $("go").disabled = true;
+    const pct = Math.round((p.progress || 0) * 100), m = Math.floor(p.elapsed / 60), s = p.elapsed % 60;
+    $("status").textContent = `${p.phase}${pct ? " " + pct + "%" : ""} · ${p.model.toUpperCase()} · ${m}:${String(s).padStart(2, "0")}`;
+    if (p.preview) { $("prev").style.display = "block"; $("prev").src = "data:image/" + (p.preview.startsWith("iVBOR") ? "png" : "jpeg") + ";base64," + p.preview; }
+    return;
+  }
+  if (ST.on) {            // just finished
+    ST.on = false; $("go").disabled = false; $("prev").style.display = "none";
+    if (p.error) { $("status").textContent = "Failed: " + p.error; toast(p.error); return; }
+    if (p.url) { $("status").textContent = "Done 完成"; show({url: p.url, poster: p.poster, name: p.url.split("/").pop()}); loadList(); }
+  }
+}
+setInterval(tick, 2000);
+function show(it) {
+  ST.sel = it;
+  const v = $("video"); v.src = it.url; if (it.poster) v.poster = it.poster;
+  $("out").style.display = "block"; v.play().catch(() => {});
+  document.querySelectorAll("#list button").forEach(b => b.classList.toggle("sel", b.dataset.name === it.name));
+}
+function continueClip() {
+  if (!ST.sel) return;
+  ST.cont = "videos/" + ST.sel.name; ST.src = "";
+  $("src").style.display = "none";
+  $("status").textContent = "Continuing " + ST.sel.name + " — describe the next motion, then Generate";
+  $("prompt").focus(); window.scrollTo({top: 0, behavior: "smooth"});
+}
+async function shareClip() {
+  if (!ST.sel) return;
+  const abs = new URL(ST.sel.url, location.origin).href;
+  try {
+    const blob = await (await fetch(abs)).blob();
+    const file = new File([blob], ST.sel.name, {type: "video/mp4"});
+    if (navigator.canShare && navigator.canShare({files: [file]})) { await navigator.share({files: [file]}); return; }
+    if (navigator.share) { await navigator.share({url: abs}); return; }
+    location.href = abs;
+  } catch (e) { if (e.name !== "AbortError") toast("Share failed"); }
+}
+async function deleteClip() {
+  if (!ST.sel || !confirm("Delete " + ST.sel.name + "?")) return;
+  await fetch("/api/videos/" + encodeURIComponent(ST.sel.name), {method: "DELETE"});
+  $("out").style.display = "none"; ST.sel = null; loadList();
+}
+async function loadList() {
+  let l = []; try { l = await (await fetch("/api/videos")).json(); } catch (e) {}
+  const g = $("list"); g.innerHTML = "";
+  l.forEach(it => {
+    const b = document.createElement("button"); b.dataset.name = it.name;
+    b.innerHTML = (it.poster ? `<img loading="lazy" src="${esc(it.poster)}">` : "") +
+      `<i class="play"><svg viewBox="0 0 24 24"><path d="M7 4.5v15l12-7.5z"/></svg></i>` +
+      `<span class="cap">${esc((it.seconds || "?") + "s · " + (it.model || ""))}</span>`;
+    b.onclick = () => show(it);
+    g.appendChild(b);
+  });
+}
+async function health() {
+  try {
+    const h = await (await fetch("/api/health")).json();
+    $("sub").textContent = (h.gpu ? h.gpu.split(",")[0] : "") + (h.models["14b"] ? " · 5B + 14B ready" : h.models["5b"] ? " · 5B ready, 14B downloading" : " · " + (h.boot || "starting…"));
+  } catch (e) {}
+}
+$("prompt").value = localStorage.getItem("prompt") || "";
+health(); loadList(); tick(); setInterval(health, 15000);
+</script></body></html>
