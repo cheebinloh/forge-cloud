@@ -13,7 +13,10 @@ st() { echo "$1" >> "$S"; }
 : > "$S"
 st "Installing system packages"
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -qq && apt-get install -y -qq git curl ffmpeg libgl1 libglib2.0-0 > /dev/null
+apt-get update -qq && apt-get install -y -qq git curl ffmpeg libgl1 libglib2.0-0 gcc g++ > /dev/null
+# comfy-kitchen compiles a triton helper at import and links -lcuda; the
+# runtime image ships only libcuda.so.1, so give it the dev-style name too
+ln -sf /usr/lib/x86_64-linux-gnu/libcuda.so.1 /usr/lib/x86_64-linux-gnu/libcuda.so
 
 # --- tailscale: userspace networking, containers have no /dev/net/tun
 if ! command -v tailscale > /dev/null; then
