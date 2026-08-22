@@ -73,7 +73,8 @@ async def _gate(request, call_next):
         if p == "/" or p.endswith(".html"):
             return RedirectResponse("/login")
         return JSONResponse({"error": "login required"}, status_code=401)
-    if request.method in ("POST", "PUT", "DELETE") and TOKEN and not _has_token(request)             and not (PASSWORD and request.cookies.get(COOKIE) == _token()):
+    if request.method in ("POST", "PUT", "DELETE") and TOKEN and not _has_token(request) \
+            and not (PASSWORD and request.cookies.get(COOKIE) == _token()):
         return JSONResponse({"error": "missing token"}, status_code=403)
     return await call_next(request)
 
