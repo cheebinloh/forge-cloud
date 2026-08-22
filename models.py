@@ -80,17 +80,22 @@ def civitai(url, dst, token):
     os.makedirs(d, exist_ok=True)
     cmd = ["aria2c", "-x", "8", "-s", "8", "-k", "8M", "--file-allocation=none",
            "--continue=true", "--auto-file-renaming=false", "--allow-overwrite=true",
-           "--summary-interval=0", "-d", d, "-o", n, full]
+           "--summary-interval=0", "-d", d, "-o", n, "--", full]
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0 or not os.path.exists(dst):
         print("aria2 failed, trying curl:", r.stderr[-300:], flush=True)
-        r = subprocess.run(["curl", "-L", "-sS", "--fail", "-o", dst, full],
+        r = subprocess.run(["curl", "-L", "-sS", "--fail", "-o", dst, "--", full],
                            capture_output=True, text=True)
         if r.returncode != 0:
             print("curl failed:", r.stderr[-300:], flush=True)
             return False
     # a tiny file is an error page (bad token / gated model), not a model
     return os.path.getsize(dst) > 1_000_000
+
+
+def safe_name(n):
+    n = os.path.basename(n.replace(chr(92), "/")).strip().lstrip("-.")
+    return "".join(c if (c.isalnum() or c in " ._()[]-") else "_" for c in n)[:150]
 
 
 def forge():
@@ -108,6 +113,12 @@ def forge():
     _status(total=total, done=0, current="", failed=[])
     for it in items:
         sub = "checkpoints" if it.get("type") == "checkpoint" else "loras"
+        # the manifest came over the wire: keep file names to plain basenames
+        it["file_name"] = safe_name(it.get("file_name") or "")
+        if not it["file_name"] or not str(it.get("url", "")).startswith("https://civitai.com/"):
+            failed.append(it.get("name") or "?")
+            done += 1
+            continue
         dst = os.path.join(FORGE_ROOT, sub, it["file_name"])
         _status(done=done, current=it.get("name") or it["file_name"])
         if os.path.exists(dst) and os.path.getsize(dst) > 1_000_000:
