@@ -1,5 +1,5 @@
 #!/bin/bash
-# Unleashed Forge cloud video — Vast.ai onstart. Runs as root on every boot
+# Unleashed Forge cloud video - Vast.ai onstart. Runs as root on every boot
 # of the instance; everything lands in /workspace, which Vast keeps across
 # stop/start, so only the first boot is slow (pip + ~47 GB of models).
 #
@@ -58,6 +58,6 @@ for i in $(seq 1 60); do
   curl -fs http://127.0.0.1:4890/api/health > /dev/null && break
   sleep 2
 done
-st "Ready (5B) — 14B still downloading"
+st "Ready (5B) - 14B still downloading"
 python /workspace/forge-cloud/models.py 14b
 st "Ready"
