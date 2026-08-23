@@ -98,6 +98,11 @@ def safe_name(n):
     return "".join(c if (c.isalnum() or c in " ._()[]-") else "_" for c in n)[:150]
 
 
+FORGE_EXTRAS = [   # IP-Adapter style reference (SDXL family) for vForge
+    ("h94/IP-Adapter", "sdxl_models/ip-adapter-plus_sdxl_vit-h.safetensors", "ControlNet"),
+]
+
+
 def forge():
     """The manifest the phone picked at boot + what flux checkpoints need."""
     raw = os.environ.get("MANIFEST_B64", "")
@@ -129,6 +134,11 @@ def forge():
                 os.remove(dst)
         done += 1
         _status(done=done, failed=failed)
+    for repo, fn, sub in FORGE_EXTRAS:
+        try:
+            hf(repo, fn, sub, root=os.environ.get("FORGE_DIR", "/workspace/forge") + "/models")
+        except Exception as e:
+            failed.append(os.path.basename(fn) + ": " + str(e)[:80])
     if need_flux:
         for repo, fn, sub in FLUX_EXTRAS:
             _status(done=done, current=os.path.basename(fn))
