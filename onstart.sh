@@ -16,7 +16,9 @@ S=/workspace/status.txt
 st() { echo "$1" >> "$S"; }
 : > "$S"
 SERVICES="${SERVICES:-comfy}"
+WAN_MODELS="${WAN_MODELS:-5b,14b}"
 has() { case ",$SERVICES," in *",$1,"*) return 0;; *) return 1;; esac; }
+wan() { case ",$WAN_MODELS," in *",$1,"*) return 0;; *) return 1;; esac; }
 
 st "Installing system packages"
 export DEBIAN_FRONTEND=noninteractive
@@ -83,8 +85,13 @@ if has comfy; then
     git clone --depth 1 https://github.com/comfyanonymous/ComfyUI /workspace/ComfyUI
   fi
   pip install -q -r /workspace/ComfyUI/requirements.txt
-  st "Downloading models (5B, ~18 GB)"
-  python /workspace/forge-cloud/models.py 5b
+  if wan 5b; then
+    st "Downloading models (5B, ~18 GB)"
+    python /workspace/forge-cloud/models.py 5b
+  elif wan 14b; then
+    st "Downloading models (14B, ~29 GB)"
+    python /workspace/forge-cloud/models.py 14b
+  fi
   st "Starting ComfyUI"
   cd /workspace/ComfyUI
   (python main.py --listen 127.0.0.1 --port 8188 --preview-method auto \
@@ -96,7 +103,7 @@ for i in $(seq 1 60); do
   curl -fs http://127.0.0.1:4890/api/health > /dev/null && break
   sleep 2
 done
-if has comfy; then
+if has comfy && wan 5b && wan 14b; then
   st "Ready (5B) - 14B still downloading"
   python /workspace/forge-cloud/models.py 14b
 fi
