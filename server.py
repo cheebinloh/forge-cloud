@@ -178,11 +178,33 @@ class ForgeSelect(BaseModel):
     checkpoint: str
 
 
+def _forge_unload():
+    """Ask Forge to drop its checkpoint so a video job has the card; Forge
+    reloads it by itself on the next image."""
+    import urllib.request
+    try:
+        urllib.request.urlopen(urllib.request.Request(
+            FORGE_URL + "/sdapi/v1/unload-checkpoint", method="POST"), timeout=120).read()
+    except Exception:
+        pass
+
+
+@app.post("/api/forge/prepare")
+def forge_prepare():
+    """Called before a vForge batch: on a box that also runs vComfy, let go of
+    the Wan weights so Forge has the VRAM. No-op while a video is rendering."""
+    if "comfy" in SERVICES and not VIDEO["on"]:
+        wan.free()
+    return {"ok": True}
+
+
 @app.post("/api/forge/select")
 def forge_select(req: ForgeSelect):
     """Switch Forge's checkpoint. Flux / Krea checkpoints need the separate
     text encoders + VAE as 'additional modules'; SDXL must not have them."""
     import urllib.request
+    if "comfy" in SERVICES and not VIDEO["on"]:
+        wan.free()                                 # the new checkpoint needs the room
     try:
         bases = json.loads((FORGE_MODELS / "bases.json").read_text())
     except Exception:
@@ -346,6 +368,9 @@ def _job(req, src):
     try:
         if not wan.alive():
             raise RuntimeError("ComfyUI is not running")
+        if "forge" in SERVICES and _forge_alive():
+            VIDEO["phase"] = "Unloading Forge"      # both on one card: take turns
+            _forge_unload()
         cont = src.suffix.lower() == ".mp4"
         VIDEO["phase"] = "Uploading " + ("clip" if cont else "frame")
         name = wan.upload(src, "video/mp4" if cont else "image/png")
