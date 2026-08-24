@@ -37,7 +37,8 @@ SETS = {
 FLUX_EXTRAS = [
     ("comfyanonymous/flux_text_encoders", "clip_l.safetensors", "text_encoder"),
     ("comfyanonymous/flux_text_encoders", "t5xxl_fp8_e4m3fn.safetensors", "text_encoder"),
-    ("black-forest-labs/FLUX.1-schnell", "ae.safetensors", "vae"),
+    # the Flux VAE — black-forest-labs repos are gated, this repackage is not
+    ("Comfy-Org/Lumina_Image_2.0_Repackaged", "split_files/vae/ae.safetensors", "vae"),
 ]
 
 
